@@ -1,0 +1,473 @@
+---
+title: "NfL_AH_serum_validation"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+# load libraries
+library(dplyr); library(ggplot2); library(lme4); library(lmerTest); library(gtsummary); library(tidyr); library(cowplot); library(scales); require(stringr)
+
+
+```
+
+```{r}
+# load data
+setwd("/Users/jonathanlin/Documents/margeta/")
+
+clinical_df <- read.csv("~/Documents/margeta/clinical_data_001.csv", header=TRUE)
+
+clinical_df$SubjectID <- as.factor(clinical_df$SubjectID)
+clinical_df$MRN <- as.factor(clinical_df$MRN)
+
+biomarker_df <- read.csv("~/Documents/margeta/MEEI NfL Final Data edited.csv", header=TRUE)
+
+## Supplementary Table S1
+# identifying how many <LLOD/<LLOQ in AH samples
+#select AH samples
+biomarker_df_ahonly <- biomarker_df %>% dplyr::select(SampleID, Matrix, Concentration, Dilution.Factor:ULOQ) %>% 
+  filter(Matrix == "Aqueous Humor")
+
+# glaucoma
+biomarker_df_ahonly_g <- biomarker_df_ahonly %>% 
+  filter(substr(SampleID, 1, 1) == "G")
+
+# control
+biomarker_df_ahonly_c <- biomarker_df_ahonly %>% 
+  filter(substr(SampleID, 1, 1) == "C")
+
+table_c <- biomarker_df_ahonly_c %>% select(Dilution.Factor, LLOQ, LLOD, CV)
+table_c1 <- tbl_summary(table_c, by = Dilution.Factor)
+
+print(table_c1)
+
+table_g <- biomarker_df_ahonly_g %>% select(Dilution.Factor, LLOQ, LLOD, CV)
+table_g1 <- tbl_summary(table_g, by = Dilution.Factor)
+
+print(table_g1)
+```
+
+
+```{r}
+## Supplementary Figure S1
+# showing singlicate dilution linearity
+
+# this is bringing in raw data from data table
+singlicate_df <- data.frame(sample1=c(42.67, 39.5, 36.61, 40.49, 42.48, 38.9),
+                            sample2=c(25.33, 21.7, 21.34, 21.57, 23.16, 24.58),
+                            sample3=c(13.2, 12.16, 13.4, 12.3, 10.81, 14.86),
+                            dilution=c("a_4x", "b_8x", "c_16x", "d_24x", "e_36x", "f_48x"))
+
+sample1mean <- mean(singlicate_df$sample1)
+sample2mean <- mean(singlicate_df$sample2)
+sample3mean <- mean(singlicate_df$sample3)
+
+singlicate_df <- singlicate_df %>%
+  pivot_longer(
+    cols = c(sample1, sample2, sample3),
+    names_to = 'sample',
+    values_to = 'value')
+
+1.1*sample1mean
+1.1*sample2mean
+1.1*sample3mean
+
+singlicate_df$upper <- ifelse(singlicate_df$sample == "sample1", 44.11917, ifelse(singlicate_df$sample == "sample2", 25.24133, 14.06717))
+
+0.9*sample1mean
+0.9*sample2mean
+0.9*sample3mean
+
+singlicate_df$lower <- ifelse(singlicate_df$sample == "sample1", 36.0975, ifelse(singlicate_df$sample == "sample2", 20.652, 11.5095))
+
+singlicate_df$dilution <- as.factor(singlicate_df$dilution)
+
+z <- ggplot(singlicate_df, aes(x=dilution, y=value, fill = sample, color = sample)) + 
+  geom_ribbon(aes(x = dilution, ymax = upper, ymin = lower, group = sample), alpha = 0.2, show.legend = FALSE) +
+  geom_line(aes(group = sample, color = sample), show.legend = FALSE, size = 1) +
+  geom_point(aes(color = sample), size = 2, show.legend = TRUE) +
+  scale_x_discrete(labels=c(expression('4'%*%''),expression('8'%*%""),expression('16'%*%""),expression('24'%*%""),expression('36'%*%""),expression('48'%*%""))) +
+  scale_colour_manual(labels = c("1", "2", "3"), values = c("#EA5F94", "#0000FF", "#FFB14E")) + 
+  scale_fill_manual(labels = c("1", "2", "3"), values = c("#EA5F94", "#0000FF", "#FFB14E")) +
+  labs(y = "Aqueous Humor NfL (pg/ml)", x = "Dilution Factor", fill = "Sample", color = "Sample") +
+  ylim(c(0,60)) +
+  theme_classic() +
+  theme(axis.text = element_text(size=12)) +
+  theme(axis.title = element_text(face="bold", size=15)) +
+  theme(legend.title = element_text(face="bold", size=12)) +
+  theme(legend.text = element_text(size=12)) +
+  theme(legend.position = c(0.5,0.9), legend.direction = "horizontal")
+
+print(z)
+
+save_plot(filename = "~/Documents/margeta/figS1.tiff", plot = z, base_width = 6, base_height = 4)
+
+```
+
+```{r}
+# data clean up 
+biomarker_df <- biomarker_df %>% dplyr::select(SampleID, Matrix, Concentration, LLOQ:ULOQ) %>% 
+  drop_na(Concentration) %>% 
+  filter(LLOD == "0" & CV == "0")
+
+biomarker_df$Matrix <- as.factor(biomarker_df$Matrix)
+
+biomarker_df_serum <- biomarker_df %>% filter (Matrix == "Serum")
+colnames(biomarker_df_serum) <- c("SampleID", "Matrix_serum", "concentration_serum", "LLOQ_serum", "LLOD_serum", "CV_serum", "ULOQ_serum")
+
+biomarker_df_AH <- biomarker_df %>% filter (Matrix == "Aqueous Humor")
+colnames(biomarker_df_AH) <- c("SampleID", "Matrix_AH", "concentration_AH", "LLOQ_AH", "LLOD_AH", "CV_AH", "ULOQ_AH")
+
+# merge data together
+merged_df <- merge(clinical_df, biomarker_df_AH, by.x ="SubjectID", by.y = "SampleID", all=TRUE)
+merged_df <- merge(merged_df, biomarker_df_serum, by.x ="SubjectID", by.y = "SampleID", all=TRUE) %>% drop_na (BMI)
+
+# identifying which many patients had both eyes included in the study
+count <- merged_df %>% 
+  group_by(MRN) %>%
+  summarise(no_rows = length(MRN)) %>% filter (no_rows > 1)
+
+merge_count <- merge(count, merged_df, by = "MRN", all.x = TRUE)
+
+merged_df$dx_code <- as.factor(str_sub(merged_df$SubjectID, 1, 1))
+merged_df$Sex_s <- as.factor(ifelse(merged_df$Sex == "M" | merged_df$Sex == "m", "Male", "Female"))
+merged_df$IOP.Max_n <- as.numeric(merged_df$IOP.Max)
+
+# sensitivity analysis - creating same data sets omitting those <LLOQ (only for AH since no serum samples were <LLOQ)
+biomarker_df_omitlloq <- biomarker_df %>% 
+  filter(LLOQ == "0")
+
+biomarker_df_omitlloq$Matrix <- as.factor(biomarker_df_omitlloq$Matrix)
+
+biomarker_df_AH_omitlloq <- biomarker_df_omitlloq %>% filter (Matrix == "Aqueous Humor")
+colnames(biomarker_df_AH_omitlloq) <- c("SampleID", "Matrix_AH", "concentration_AH", "LLOQ_AH", "LLOD_AH", "CV_AH", "ULOQ_AH")
+
+merged_df_omitlloq <- merge(clinical_df, biomarker_df_AH_omitlloq, by.x ="SubjectID", by.y = "SampleID", all=TRUE) %>%
+  drop_na(BMI)
+
+merged_df_omitlloq$dx_code <- as.factor(str_sub(merged_df_omitlloq$SubjectID, 1, 1))
+merged_df_omitlloq$Sex_s <- as.factor(ifelse(merged_df_omitlloq$Sex == "M" | merged_df_omitlloq$Sex == "m", "Male", "Female"))
+merged_df_omitlloq$IOP.Max_n <- as.numeric(merged_df_omitlloq$IOP.Max)
+
+# transform AH and serum NfL to log2 to achieve normal distribution
+hist(merged_df$concentration_AH)
+hist(merged_df$concentration_serum)
+
+merged_df$log_concentration_AH <- log2(merged_df$concentration_AH)
+merged_df$log_concentration_serum <- log2(merged_df$concentration_serum)
+merged_df_omitlloq$log_concentration_AH <- log2(merged_df_omitlloq$concentration_AH)
+
+hist(merged_df$log_concentration_AH)
+hist(merged_df$log_concentration_serum)
+hist(merged_df_omitlloq$log_concentration_AH)
+
+# mutate MM* to just MM (for mixed mechanism glaucoma)
+merged_df$Glaucoma.type_s[grepl("MM",merged_df$Glaucoma.type)] <- "MM"
+merged_df$Glaucoma.type_s <- as.factor(ifelse(is.na(merged_df$Glaucoma.type_s), merged_df$Glaucoma.type, "MM"))
+
+```
+
+
+
+```{r}
+
+# select cases with either AH and/or serum NfL
+merged_df$include <- as.numeric(ifelse(merged_df$log_concentration_serum > -1000 | merged_df$log_concentration_AH > -1000, "1", "0"))
+merged_df_slim <- merged_df %>% drop_na(include)
+
+## Tables 1-2
+# baseline characteristics
+table0 <- merged_df_slim %>% select(Age, BMI, Sex_s, Race, Laterality, Glaucoma.Severity, Glaucoma.type_s, SurgeryType_short, dx_code, Baseline.Meds, LLOQ_AH, LLOD_AH, CV_AH, ULOQ_AH, LLOQ_serum, LLOD_serum, CV_serum, ULOQ_serum) %>%
+  mutate(dx_code = factor(dx_code, labels = c("Control", "Glaucoma")))
+
+table1 <- tbl_summary(table0, by = dx_code,
+                      statistic = all_continuous() ~ "{mean} ({sd})",
+                      digits = all_continuous() ~ 1,
+                      label = list(Age ~ "Age",
+                                   Sex_s = "Sex",
+                                   BMI = "Body Mass Index",
+                                   Race = "Self-Reported Race",
+                                   Laterality = "Laterality",
+                                   Glaucoma.Severity = "Glaucoma Severity",
+                                   Glaucoma.type_s = "Glaucoma Type",
+                                   SurgeryType_short = "Type of Surgery",
+                                   Baseline.Meds = "Number of Pre-Operative Medications")) %>%
+                   add_p(list(all_continuous() ~ "t.test"))
+
+print(table1)
+```
+
+
+```{r}
+## Figure 1
+# log2 AH NFL in glaucoma vs control
+# log2 serum NFL in glaucoma vs control
+# log2 AH NfL vs log2 serum NfL in control + glaucoma
+
+summary(lmer(log_concentration_AH ~ Age + BMI + dx_code + (1|MRN), merged_df))
+summary(lmer(log_concentration_serum ~ Age + BMI + dx_code + MMSE + (1|MRN), merged_df))
+summary(lmer(log_concentration_serum ~ Age + BMI + log_concentration_AH + MMSE + (1|MRN), merged_df))
+
+a <- ggplot(merged_df, aes(x=dx_code, y=log_concentration_AH, fill = dx_code, color = dx_code, alpha = 0.4)) + 
+  geom_boxplot(outlier.shape = NA, width=.75, show.legend = FALSE) +
+  geom_point(aes(color = dx_code), size = 3, position = position_jitterdodge(dodge.width=1, jitter.width=1), show.legend = FALSE) +
+  scale_x_discrete(labels=c('Control','Glaucoma')) +
+  labs(y = bquote(bold(~Log[2]~'transformed AH NfL')), x = "Disease Group") +
+  scale_colour_manual(values = c("cornflower blue","firebrick")) +
+  scale_fill_manual(values = c("cornflower blue","firebrick")) +
+  annotate("text", size = 10, x = 0.5, y = 10.5, label = "p < 0.0001", hjust = 0, fontface = "bold") +
+  theme_classic()  +
+  theme(axis.text = element_text(size=15)) +
+  theme(axis.title = element_text(face="bold", size=20))
+
+print(a)
+
+b <- ggplot(merged_df, aes(x=dx_code, y=log_concentration_serum, fill = dx_code, color = dx_code, alpha = 0.4)) + 
+  geom_boxplot(outlier.shape = NA, width=.75, show.legend = FALSE) +
+  geom_point(aes(color = dx_code), size = 3, position = position_jitterdodge(dodge.width=1, jitter.width=1), show.legend = FALSE) +
+  scale_x_discrete(labels=c('Control','Glaucoma')) +
+  scale_y_continuous(labels = label_number(accuracy = 0.1)) +
+  labs(y = bquote(bold(~Log[2]~'transformed serum NfL')), x = "Disease Group") +
+  scale_colour_manual(values = c("cornflower blue","firebrick")) +
+  scale_fill_manual(values = c("cornflower blue","firebrick")) +
+  annotate("text", size = 10, x = 0.5, y = 2, label = "p = 0.81", hjust = 0, fontface = "bold") +
+  theme_classic() +
+  theme(axis.text = element_text(size=15)) +
+  theme(axis.title = element_text(face="bold", size=20))
+
+print(b)
+
+c <- ggplot(merged_df, aes(x=log_concentration_AH, y=log_concentration_serum, color = dx_code, fill = dx_code, alpha = 0.4)) +
+  geom_point(aes(color = dx_code), size = 3, alpha = 0.4, show.legend=F) +
+  geom_smooth(method = lm, aes(color="black", fill="black"), alpha = 0.1, show.legend=F) +
+  labs(y = bquote(bold(~Log[2]~'transformed serum NfL')),
+       x = bquote(bold(~Log[2]~'transformed AH NfL'))) +
+  scale_y_continuous(labels = label_number(accuracy = 0.1)) +
+  scale_colour_manual(values = c("cornflower blue","firebrick","black")) +
+  scale_fill_manual(values = c("cornflower blue","firebrick","black")) +
+  annotate("text", size = 10, x = 5.5, y = 2, label = "t = 2.2, p = 0.03", hjust = 0, fontface = "bold") +
+  theme_classic() +
+  theme(axis.text = element_text(size=15)) +
+  theme(axis.title = element_text(face="bold", size=20)) +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 10.75, b = 0, l = 0)))
+
+print(c)
+
+ab <- plot_grid(a, b, labels = c("A","B"), nrow=1, label_size = 20)
+abc <- plot_grid(ab, c, labels = c("","C"), rel_widths = c(1,2), nrow=2, label_size = 20)
+
+print(abc)
+
+save_plot(filename = "~/Documents/margeta/fig1.tiff",
+          plot = abc, base_width = 11, base_height = 11)
+
+# sensitivity analysis when omitting AH samples that are <LLOQ
+summary(lmer(log_concentration_AH ~ Age + BMI + dx_code + (1|MRN), merged_df_omitlloq))
+
+# calculating odds ratios
+logreg <- glm(dx_code ~ log_concentration_AH + Age + BMI, family = binomial, data = merged_df)
+t1 <- tbl_regression(logreg, exponentiate = TRUE)
+print(t1)
+
+logreg <- glm(dx_code ~ log_concentration_serum + Age + BMI + MMSE, family = binomial, data = merged_df)
+t2 <- tbl_regression(logreg, exponentiate = TRUE)
+print(t2)
+
+```
+
+
+```{r}
+## Figure 2
+# analysis of patients with glaucoma (AH samples)
+merged_df_G <- merged_df %>% filter (dx_code == "G")
+
+merged_df_G$Baseline.IOP <- as.numeric(merged_df_G$Baseline.IOP)
+merged_df_G$IOP.Max <- as.numeric(merged_df_G$IOP.Max)
+merged_df_G$MD <- as.numeric(merged_df_G$MD)
+merged_df_G$RNFL <- as.numeric(merged_df_G$RNFL)
+
+summary(lmer(Baseline.IOP ~ log_concentration_AH + Age + BMI + (1|MRN), merged_df_G))
+summary(lmer(IOP.Max ~ log_concentration_AH + Age + BMI + (1|MRN), merged_df_G))
+summary(lmer(MD ~ log_concentration_AH + Age + BMI + (1|MRN), merged_df_G))
+summary(lmer(RNFL ~ log_concentration_AH + Age + BMI + (1|MRN), merged_df_G))
+
+d <- ggplot(merged_df_G, aes(x=log_concentration_AH, y=Baseline.IOP, fill = "firebrick", color = "firebrick")) +
+  geom_point(aes(color = "firebrick"), size = 2, show.legend=F) +
+  geom_smooth(method = lm, aes(color="black", fill="black"), alpha = 0.1, show.legend=F) +
+  scale_colour_manual(values = c("black", "firebrick")) +
+  labs(y = 'Pre-Operative IOP (mm Hg)',
+       x = bquote(bold(~Log[2]~'transformed AH NfL'))) +
+  annotate("text", size = 10, x = 7.5, y = 7.5, label = "t = 3.9, p = 0.0002", hjust = 0, fontface = "bold") +
+  theme_classic() +
+  theme(axis.text = element_text(size=15)) +
+  theme(axis.title = element_text(face="bold", size=20)) +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 16, b = 0, l = 0)))
+
+print(d)
+
+e <- ggplot(merged_df_G, aes(x=log_concentration_AH, y=IOP.Max, fill = "firebrick", color = "firebrick")) +
+  geom_point(aes(color = "firebrick"), size = 2, show.legend=F) +
+  geom_smooth(method = lm, aes(color="black", fill="black"), alpha = 0.1, show.legend=F) +
+  scale_colour_manual(values = c("black", "firebrick")) +
+  labs(y = 'Maximum IOP (mm Hg)',
+       x = bquote(bold(~Log[2]~'transformed AH NfL'))) +
+  annotate("text", size = 10, x = 7.5, y = 20, label = "t = 3.3, p = 0.001", hjust = 0, fontface = "bold") +
+  theme_classic() +
+  theme(axis.text = element_text(size=15)) +
+  theme(axis.title = element_text(face="bold", size=20)) +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 16, b = 0, l = 0)))
+
+print(e)
+
+f <- ggplot(merged_df_G, aes(x=log_concentration_AH, y=MD, fill = "firebrick", color = "firebrick")) +
+  geom_point(aes(color = "firebrick"), size = 2, show.legend=F) +
+  geom_smooth(method = lm, aes(color="black", fill="black"), alpha = 0.1, show.legend=F) +
+  scale_colour_manual(values = c("black", "firebrick")) +
+  labs(y = 'Mean Deviation (dB)',
+       x = bquote(bold(~Log[2]~'transformed AH NfL'))) +
+  annotate("text", size = 10, x = 7.5, y = -30, label = "t = 2.1, p = 0.04", hjust = 0, fontface = "bold") +
+  theme_classic() +
+  theme(axis.text = element_text(size=15)) +
+  theme(axis.title = element_text(face="bold", size=20)) +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 8, b = 0, l = 0)))
+
+print(f)
+
+g <- ggplot(merged_df_G, aes(x=log_concentration_AH, y=RNFL, fill = "firebrick", color = "firebrick")) +
+  geom_point(aes(color = "firebrick"), size = 2, show.legend=F) +
+  geom_smooth(method = lm, aes(color="black", fill="black"), alpha = 0.1, show.legend=F) +
+  scale_colour_manual(values = c("black", "firebrick")) +
+  labs(y = 'RNFL Thickness (microns)',
+       x = bquote(bold(~Log[2]~'transformed AH NfL'))) +
+  annotate("text", size = 10, x = 7.5, y = 40, label = "t = 2.2, p = 0.03", hjust = 0, fontface = "bold") +
+  theme_classic() +
+  theme(axis.text = element_text(size=15)) +
+  theme(axis.title = element_text(face="bold", size=20)) +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 8, b = 0, l = 0)))
+
+print(g)
+
+defg <- plot_grid(d, e, f, g, labels = c("A","B","C","D"), nrow=2, label_size = 20)
+
+print(defg)
+
+save_plot(filename = "~/Documents/margeta/fig2.tiff",
+          plot = defg, base_width = 20, base_height = 11)
+
+```
+
+
+```{r}
+## Figure 3
+# analysis of patients with glaucoma (serum samples)
+summary(lmer(Baseline.IOP ~ log_concentration_serum + Age + BMI + MMSE + (1|MRN), merged_df_G))
+summary(lmer(IOP.Max ~ log_concentration_serum + Age + BMI + MMSE + (1|MRN), merged_df_G))
+summary(lmer(MD ~ log_concentration_serum + Age + BMI + MMSE + (1|MRN), merged_df_G))
+summary(lmer(RNFL ~ log_concentration_serum + Age + BMI + MMSE + (1|MRN), merged_df_G))
+
+h <- ggplot(merged_df_G, aes(x=log_concentration_serum, y=Baseline.IOP, fill = "firebrick", color = "firebrick")) +
+  geom_point(aes(color = "firebrick"), size = 2, show.legend=F) +
+  geom_smooth(method = lm, aes(color="black", fill="black"), alpha = 0.1, show.legend=F) +
+  scale_colour_manual(values = c("black", "firebrick")) +
+  labs(y = 'Pre-Operative IOP (mm Hg)',
+       x = bquote(bold(~Log[2]~'transformed serum NfL'))) +
+  annotate("text", size = 10, x = 1.1, y = 30, label = "t = -0.7, p = 0.51", hjust = 0, fontface = "bold") +
+  theme_classic() +
+  theme(axis.text = element_text(size=15)) +
+  theme(axis.title = element_text(face="bold", size=20)) +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 16, b = 0, l = 0)))
+
+print(h)
+
+i <- ggplot(merged_df_G, aes(x=log_concentration_serum, y=IOP.Max, fill = "firebrick", color = "firebrick")) +
+  geom_point(aes(color = "firebrick"), size = 2, show.legend=F) +
+  geom_smooth(method = lm, aes(color="black", fill="black"), alpha = 0.1, show.legend=F) +
+  scale_colour_manual(values = c("black", "firebrick")) +
+  labs(y = 'Maximum IOP (mm Hg)',
+       x = bquote(bold(~Log[2]~'transformed serum NfL'))) +
+  annotate("text", size = 10, x = 1.1, y = 80, label = "t = 1.8, p = 0.08", hjust = 0, fontface = "bold") +
+  theme_classic() +
+  theme(axis.text = element_text(size=15)) +
+  theme(axis.title = element_text(face="bold", size=20)) +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 16, b = 0, l = 0)))
+
+print(i)
+
+j <- ggplot(merged_df_G, aes(x=log_concentration_serum, y=MD, fill = "firebrick", color = "firebrick")) +
+  geom_point(aes(color = "firebrick"), size = 2, show.legend=F) +
+  geom_smooth(method = lm, aes(color="black", fill="black"), alpha = 0.1, show.legend=F) +
+  scale_colour_manual(values = c("black", "firebrick")) +
+  labs(y = 'Mean Deviation (dB)',
+       x = bquote(bold(~Log[2]~'transformed serum NfL'))) +
+  annotate("text", size = 10, x = 1.1, y = 0, label = "t = 1.0, p = 0.31", hjust = 0, fontface = "bold") +
+  theme_classic() +
+  theme(axis.text = element_text(size=15)) +
+  theme(axis.title = element_text(face="bold", size=20)) +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 8, b = 0, l = 0)))
+
+print(j)
+
+k <- ggplot(merged_df_G, aes(x=log_concentration_serum, y=RNFL, fill = "firebrick", color = "firebrick")) +
+  geom_point(aes(color = "firebrick"), size = 2, show.legend=F) +
+  geom_smooth(method = lm, aes(color="black", fill="black"), alpha = 0.1, show.legend=F) +
+  scale_colour_manual(values = c("black", "firebrick")) +
+  labs(y = 'RNFL Thickness (microns)',
+       x = bquote(bold(~Log[2]~'transformed serum NfL'))) +
+  annotate("text", size = 10, x = 1.1, y = 105, label = "t = 0.6, p = 0.52", hjust = 0, fontface = "bold") +
+  theme_classic() +
+  theme(axis.text = element_text(size=15)) +
+  theme(axis.title = element_text(face="bold", size=20)) +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 8, b = 0, l = 0)))
+
+print(k)
+
+hijk <- plot_grid(h, i, j, k, labels = c("A","B","C","D"), nrow=2, label_size = 20)
+
+print(hijk)
+
+save_plot(filename = "~/Documents/margeta/fig3.tiff",
+          plot = hijk, base_width = 20, base_height = 11)
+```
+
+
+```{r}
+## Supplementary Figure S2
+# classes of baseline meds
+summary(lmer(log_concentration_AH ~ Baseline.Meds + Age + BMI + (1|MRN), merged_df_G))
+
+l <- ggplot(merged_df_G, aes(x=Baseline.Meds, y=log_concentration_AH)) +
+  geom_point(color = "firebrick", size = 2, show.legend = F) +
+  labs(x = 'Pre-Operative Classes of Medications',
+       y = bquote(bold(~Log[2]~'transformed AH NfL'))) +
+  annotate("text", size = 10, x = 0.25, y = 15, label = "t = 1.0, p = 0.32", hjust = 0, fontface = "bold") +
+  theme_classic() +
+  theme(axis.text = element_text(size=15)) +
+  theme(axis.title = element_text(face="bold", size=20))
+
+print(l)
+
+summary(lmer(log_concentration_serum ~ Baseline.Meds + Age + BMI + MMSE + (1|MRN), merged_df_G))
+
+m <- ggplot(merged_df_G, aes(x=Baseline.Meds, y=log_concentration_serum)) +
+  geom_point(color = "firebrick", size = 2, show.legend = F) +
+  labs(x = 'Pre-Operative Classes of Medications',
+       y = bquote(bold(~Log[2]~'transformed serum NfL'))) +
+  annotate("text", size = 10, x = 0.25, y = 8, label = "t = 1.1, p = 0.26", hjust = 0, fontface = "bold") +
+  theme_classic() +
+  theme(axis.text = element_text(size=15)) +
+  theme(axis.title = element_text(face="bold", size=20))
+
+print(m)
+
+lm <- plot_grid(l, m, labels = c("A","B"), nrow=1, label_size = 20)
+
+print(lm)
+
+save_plot(filename = "~/Documents/margeta/figS2.tiff", plot = lm, base_width = 20, base_height = 7)
+
+```
